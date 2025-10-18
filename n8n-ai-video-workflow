@@ -1,0 +1,247 @@
+{
+  "name": "AI Multi-platform Video Publisher",
+  "nodes": [
+    {
+      "parameters": {},
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        250,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "requestMethod": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "options": {},
+        "headerParameters": [
+          {
+            "name": "Authorization",
+            "value": "Bearer {{OPENAI_API_KEY}}"
+          },
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "bodyParametersJson": "{\n  \"model\": \"gpt-4o-mini\",\n  \"messages\": [\n    { \"role\": \"system\", \"content\": \"You are a helpful assistant that creates short video scripts and timestamps for editing. Output JSON with fields: title, description, script, scenes (array of {image_prompt, start_sec, end_sec})\" },\n    { \"role\": \"user\", \"content\": \"Create a short video script (30-90s) about {{VIDEO_TOPIC}} with suggested on-screen text and scene image prompts.\" }\n  ],\n  \"max_tokens\": 800\n}"
+      },
+      "name": "Generate Script (OpenAI)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        550,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "requestMethod": "POST",
+        "url": "https://api.example-tts.com/v1/tts",
+        "options": {},
+        "headerParameters": [
+          {
+            "name": "Authorization",
+            "value": "Bearer {{TTS_API_KEY}}"
+          },
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "bodyParametersJson": "{\n  \"voice\": \"{{TTS_VOICE}}\",\n  \"input\": \"{{$json[\"choices\"][0].message.content}}\",\n  \"format\": \"mp3\"\n}"
+      },
+      "name": "Text-to-Speech (TTS)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        850,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "command": "ffmpeg -y -loop 1 -i {{SCENE_IMAGE_PATH}} -i input_audio.mp3 -c:v libx264 -c:a aac -b:a 192k -shortest output.mp4",
+        "options": {}
+      },
+      "name": "Create Video (FFmpeg)",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        1150,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "requestMethod": "PUT",
+        "url": "{{S3_PRESIGNED_URL}}",
+        "options": {},
+        "binaryProperty": "data"
+      },
+      "name": "Upload Video to S3 (presigned)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        1450,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "requestMethod": "POST",
+        "url": "https://www.googleapis.com/upload/youtube/v3/videos?part=snippet,status",
+        "options": {},
+        "headerParameters": [
+          {
+            "name": "Authorization",
+            "value": "Bearer {{YOUTUBE_ACCESS_TOKEN}}"
+          }
+        ],
+        "bodyParametersJson": "{\n  \"snippet\": {\n    \"title\": \"{{VIDEO_TITLE}}\",\n    \"description\": \"{{VIDEO_DESCRIPTION}}\",\n    \"tags\": [{{VIDEO_TAGS}}]\n  },\n  \"status\": { \"privacyStatus\": \"public\" }\n}"
+      },
+      "name": "Upload to YouTube (HTTP)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        1750,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "requestMethod": "POST",
+        "url": "https://open-api.tiktok.com/video/upload/",
+        "options": {},
+        "headerParameters": [
+          {
+            "name": "Authorization",
+            "value": "Bearer {{TIKTOK_ACCESS_TOKEN}}"
+          }
+        ],
+        "bodyParametersJson": "{\n  \"text\": \"{{VIDEO_TITLE}}\\n{{VIDEO_DESCRIPTION}}\"\n}"
+      },
+      "name": "Upload to TikTok (HTTP)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        1750,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "requestMethod": "POST",
+        "url": "https://graph.facebook.com/v17.0/{{IG_USER_ID}}/media",
+        "options": {},
+        "headerParameters": [],
+        "bodyParametersJson": "{\n  \"video_url\": \"{{S3_PUBLIC_URL}}\",\n  \"caption\": \"{{VIDEO_DESCRIPTION}}\",\n  \"access_token\": \"{{IG_ACCESS_TOKEN}}\"\n}"
+      },
+      "name": "Create IG Container (Graph API)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        1750,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "requestMethod": "POST",
+        "url": "https://graph.facebook.com/v17.0/{{IG_USER_ID}}/media_publish",
+        "options": {},
+        "headerParameters": [],
+        "bodyParametersJson": "{\n  \"creation_id\": \"{{$json[\"id\"]}}\",\n  \"access_token\": \"{{IG_ACCESS_TOKEN}}\"\n}"
+      },
+      "name": "Publish IG Media",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        2000,
+        420
+      ]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Generate Script (OpenAI)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Script (OpenAI)": {
+      "main": [
+        [
+          {
+            "node": "Text-to-Speech (TTS)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Text-to-Speech (TTS)": {
+      "main": [
+        [
+          {
+            "node": "Create Video (FFmpeg)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Video (FFmpeg)": {
+      "main": [
+        [
+          {
+            "node": "Upload Video to S3 (presigned)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload Video to S3 (presigned)": {
+      "main": [
+        [
+          {
+            "node": "Upload to YouTube (HTTP)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Upload to TikTok (HTTP)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Create IG Container (Graph API)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create IG Container (Graph API)": {
+      "main": [
+        [
+          {
+            "node": "Publish IG Media",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {}
+}
